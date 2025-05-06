@@ -21,6 +21,7 @@ type LogEntry struct {
 	URL           string              `json:"url"`
 	Method        string              `json:"method"`
 	Headers       map[string][]string `json:"headers"`
+	Time          string              `json:"time,omitempty"`
 	IsBodyBase64  bool                `json:"is_body_base64"`
 	Body          interface{}         `json:"body,omitempty"`
 	RawEntry      string              `json:"raw_entry,omitempty"`

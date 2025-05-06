@@ -19,6 +19,13 @@ func exportMessage(message map[string]interface{}) {
 	log.Printf("%s\n", data)
 }
 
+func maybeTrue(value string) bool {
+	if value == "" {
+		return true
+	}
+	return value == "true"
+}
+
 func main() {
 	// Create logs directory if it doesn't exist
 	if err := os.MkdirAll("logs", 0755); err != nil {
@@ -31,8 +38,11 @@ func main() {
 
 	largestLogSizeInBytes := 0
 	requestCounter := 0
-	includeBodyInJSON := os.Getenv("INCLUDE_BODY_IN_JSON") == "true"
-	bodyAsBase64 := os.Getenv("BODY_AS_BASE64") == "true"
+	includeBodyInJSON := maybeTrue(os.Getenv("INCLUDE_BODY_IN_JSON"))
+	bodyAsBase64 := maybeTrue(os.Getenv("BODY_AS_BASE64"))
+
+	log.Printf("includeBodyInJSON: %t", includeBodyInJSON)
+	log.Printf("bodyAsBase64: %t", bodyAsBase64)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		requestCounter++
@@ -66,6 +76,7 @@ func main() {
 			"method":         r.Method,
 			"headers":        r.Header,
 			"is_body_base64": bodyAsBase64,
+			"time":           time.Now().Format(time.RFC3339),
 		}
 
 		// Add body to metadata if environment variable is set
