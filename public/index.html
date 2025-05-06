@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Viewer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/light.css" />
+    <script type="module"
+        src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"></script>
+    <style>
+        .log-entry {
+            transition: background-color 0.2s;
+        }
+
+        .log-entry:hover {
+            background-color: #f3f4f6;
+        }
+
+        .search-input {
+            transition: all 0.3s;
+        }
+
+        .search-input:focus {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
+
+        .dialog {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 50;
+        }
+
+        .dialog.active {
+            display: flex;
+        }
+
+        .dialog-content {
+            max-width: 90%;
+            max-height: 90vh;
+            margin: auto;
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .copy-button {
+            transition: all 0.2s;
+        }
+
+        .copy-button:hover {
+            background-color: #e5e7eb;
+        }
+
+        .copy-button.copied {
+            background-color: #10b981;
+            color: white;
+        }
+
+        .log-content {
+            position: relative;
+        }
+
+        .log-content .copy-button {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .log-content:hover .copy-button {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8">Log Viewer</h1>
+
+        <!-- Controls -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- File Selector -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Log File</label>
+                    <sl-select id="logFile" class="w-full">
+                        <sl-option value="">Select a log file...</sl-option>
+                    </sl-select>
+                </div>
+
+                <!-- Page Size -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Entries per page</label>
+                    <sl-select id="pageSize" class="w-full">
+                        <sl-option value="10">10</sl-option>
+                        <sl-option value="25">25</sl-option>
+                        <sl-option value="50">50</sl-option>
+                        <sl-option value="100">100</sl-option>
+                    </sl-select>
+                </div>
+
+
+            </div>
+            <!-- Search -->
+            <div class="pt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
+                <sl-input id="searchInput" placeholder="Search in logs..." class="w-full"></sl-input>
+            </div>
+        </div>
+
+        <!-- Log Entries -->
+        <div id="logEntries" class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="text-gray-500 text-center py-8">Select a log file to view entries</div>
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="bg-white rounded-lg shadow-md p-4 flex justify-between items-center">
+            <div class="text-sm text-gray-700">
+                Showing <span id="startEntry">0</span> to <span id="endEntry">0</span> of <span
+                    id="totalEntries">0</span> entries
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="text-sm text-gray-700">
+                    Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+                </div>
+                <div class="flex space-x-2">
+                    <sl-button id="prevPage" variant="neutral" disabled>Previous</sl-button>
+                    <sl-button id="nextPage" variant="neutral" disabled>Next</sl-button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dialog for large logs -->
+    <sl-dialog id="logDialog" label="Log Entry Details">
+        <div class="space-y-4">
+            <pre id="dialogContent" class="p-4 bg-gray-50 rounded text-sm overflow-x-auto max-h-[60vh]"></pre>
+            <div class="flex justify-end">
+                <sl-button id="dialogCopyButton" variant="neutral">
+                    <sl-icon slot="prefix" name="clipboard"></sl-icon>
+                    Copy
+                </sl-button>
+            </div>
+        </div>
+    </sl-dialog>
+
+    <script>
+        // State
+        let currentPage = 1;
+        let currentFile = '';
+        let searchTerm = '';
+        let debounceTimer;
+        let totalPages = 1;
+
+        // Elements
+        const logFileSelect = document.getElementById('logFile');
+        const searchInput = document.getElementById('searchInput');
+        const pageSizeSelect = document.getElementById('pageSize');
+        const logEntries = document.getElementById('logEntries');
+        const prevPageBtn = document.getElementById('prevPage');
+        const nextPageBtn = document.getElementById('nextPage');
+        const startEntrySpan = document.getElementById('startEntry');
+        const endEntrySpan = document.getElementById('endEntry');
+        const totalEntriesSpan = document.getElementById('totalEntries');
+        const currentPageSpan = document.getElementById('currentPage');
+        const totalPagesSpan = document.getElementById('totalPages');
+        const logDialog = document.getElementById('logDialog');
+        const dialogContent = document.getElementById('dialogContent');
+        const dialogCopyButton = document.getElementById('dialogCopyButton');
+
+        // Fetch log files
+        async function fetchLogFiles() {
+            try {
+                const response = await fetch('/api/logs');
+                const files = await response.json();
+                logFileSelect.innerHTML = '<sl-option value="">Select a log file...</sl-option>';
+                files.forEach(file => {
+                    const option = document.createElement('sl-option');
+                    option.value = file.name;
+                    
+                    // Parse ISO date from filename
+                    try {
+                        const date = new Date(file.name);
+                        if (!isNaN(date.getTime())) {
+                            // Format date as "MMM DD, YYYY HH:mm:ss AM/PM"
+                            const formattedDate = date.toLocaleString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                hour12: true
+                            });
+                            option.textContent = formattedDate;
+                        } else {
+                            option.textContent = file.name;
+                        }
+                    } catch (e) {
+                        option.textContent = file.name;
+                    }
+                    
+                    logFileSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error fetching log files:', error);
+            }
+        }
+
+        // Show dialog with log content
+        function showLogDialog(content) {
+            dialogContent.textContent = content;
+            logDialog.show();
+        }
+
+        // Copy to clipboard
+        async function copyToClipboard(text, button) {
+            try {
+                await navigator.clipboard.writeText(text);
+                button.variant = 'success';
+                button.innerHTML = '<sl-icon slot="prefix" name="check"></sl-icon>Copied!';
+                setTimeout(() => {
+                    button.variant = 'neutral';
+                    button.innerHTML = '<sl-icon slot="prefix" name="clipboard"></sl-icon>Copy';
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+            }
+        }
+
+        // Fetch log entries
+        async function fetchLogEntries() {
+            if (!currentFile) return;
+
+            try {
+                const pageSize = pageSizeSelect.value;
+                const url = `/api/logs/search?file=${encodeURIComponent(currentFile)}&page=${currentPage}&page_size=${pageSize}&q=${encodeURIComponent(searchTerm)}`;
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                // Update pagination info
+                startEntrySpan.textContent = data.entries.length ? (currentPage - 1) * data.page_size + 1 : 0;
+                endEntrySpan.textContent = (currentPage - 1) * data.page_size + data.entries.length;
+                totalEntriesSpan.textContent = data.total_count;
+                totalPages = Math.ceil(data.total_count / data.page_size);
+                currentPageSpan.textContent = currentPage;
+                totalPagesSpan.textContent = totalPages;
+
+                // Update pagination buttons
+                prevPageBtn.disabled = currentPage === 1;
+                nextPageBtn.disabled = !data.has_more;
+
+                // Render entries
+                logEntries.innerHTML = data.entries.map(entry => {
+                    const body = entry.body ? (entry.is_body_base64 ? atob(entry.body) : entry.body) : '';
+                    const showDialog = body.length > 250 || (entry.raw_entry && entry.raw_entry.length > 250);
+
+                    return `
+                        <div class="log-entry p-4 border-b border-gray-200 last:border-b-0">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="font-medium text-gray-900">Request #${entry.request_number}</div>
+                                <div class="text-sm text-gray-500">${entry.method} ${entry.url}</div>
+                            </div>
+                            ${body ? `
+                                <div class="mt-2">
+                                    <div class="text-sm font-medium text-gray-700">Body:</div>
+                                    ${showDialog ? `
+                                        <div class="mt-1 p-2 bg-gray-50 rounded text-sm">
+                                            ${body.substring(0, 250)}...
+                                            <sl-button class="show-more-btn" variant="text" size="small" data-content="${encodeURIComponent(body)}">
+                                                Show more
+                                            </sl-button>
+                                        </div>
+                                    ` : `
+                                        <div class="log-content">
+                                            <pre class="mt-1 p-2 bg-gray-50 rounded text-sm overflow-x-auto">${body}</pre>
+                                            <div class="flex justify-end mt-2">
+                                                <sl-button class="copy-button" variant="neutral" size="small" data-content="${encodeURIComponent(body)}">
+                                                    <sl-icon slot="prefix" name="clipboard"></sl-icon>
+                                                    Copy
+                                                </sl-button>
+                                            </div>
+                                        </div>
+                                    `}
+                                </div>
+                            ` : ''}
+                            ${entry.raw_entry ? `
+                                <div class="mt-2">
+                                    ${showDialog ? `
+                                        <div class="text-sm text-gray-600">
+                                            ${entry.raw_entry.substring(0, 250)}...
+                                            <sl-button class="show-more-btn" variant="text" size="small" data-content="${encodeURIComponent(entry.raw_entry)}">
+                                                Show more
+                                            </sl-button>
+                                        </div>
+                                    ` : `
+                                        <div class="log-content">
+                                            <pre class="text-sm text-gray-600">${entry.raw_entry}</pre>
+                                            <div class="flex justify-end mt-2">
+                                                <sl-button class="copy-button" variant="neutral" size="small" data-content="${encodeURIComponent(entry.raw_entry)}">
+                                                    <sl-icon slot="prefix" name="clipboard"></sl-icon>
+                                                    Copy
+                                                </sl-button>
+                                            </div>
+                                        </div>
+                                    `}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('') || '<div class="text-gray-500 text-center py-8">No entries found</div>';
+            } catch (error) {
+                console.error('Error fetching log entries:', error);
+                logEntries.innerHTML = '<div class="text-red-500 text-center py-8">Error loading log entries</div>';
+            }
+        }
+
+        // Event Listeners
+        logFileSelect.addEventListener('sl-change', (e) => {
+            currentFile = e.target.value;
+            currentPage = 1;
+            fetchLogEntries();
+        });
+
+        searchInput.addEventListener('sl-input', (e) => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                searchTerm = e.target.value;
+                currentPage = 1;
+                fetchLogEntries();
+            }, 300);
+        });
+
+        pageSizeSelect.addEventListener('sl-change', () => {
+            currentPage = 1;
+            fetchLogEntries();
+        });
+
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                fetchLogEntries();
+            }
+        });
+
+        nextPageBtn.addEventListener('click', () => {
+            currentPage++;
+            fetchLogEntries();
+        });
+
+        dialogCopyButton.addEventListener('click', () => {
+            copyToClipboard(dialogContent.textContent, dialogCopyButton);
+        });
+
+        // Add event delegation for show more buttons and copy buttons
+        document.addEventListener('click', (e) => {
+            const target = e.target.closest('.show-more-btn, .copy-button');
+            if (!target) return;
+
+            if (target.classList.contains('show-more-btn')) {
+                const content = decodeURIComponent(target.dataset.content);
+                showLogDialog(content);
+            } else if (target.classList.contains('copy-button')) {
+                const content = decodeURIComponent(target.dataset.content);
+                copyToClipboard(content, target);
+            }
+        });
+
+        // Initial load
+        fetchLogFiles();
+    </script>
+</body>
+
+</html>
