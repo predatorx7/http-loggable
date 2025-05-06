@@ -20,6 +20,9 @@ A fast log ingestion and viewing service with a server written in Go and a moder
 - Dialog view for large log entries
 - AM/PM time format display
 
+<img src="./screenshots/1.png" width="400px">
+<img src="./screenshots/2.png" width="400px">
+
 ## Prerequisites
 
 - Go 1.16 or higher
