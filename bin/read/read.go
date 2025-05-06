@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type LogFile struct {
@@ -91,6 +92,8 @@ func main() {
 		// Get query parameters
 		fileName := r.URL.Query().Get("file")
 		searchTerm := r.URL.Query().Get("q")
+		startTime := strings.ReplaceAll(r.URL.Query().Get("start_time"), " ", "+")
+		endTime := strings.ReplaceAll(r.URL.Query().Get("end_time"), " ", "+")
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
 
@@ -120,6 +123,23 @@ func main() {
 		}
 		defer file.Close()
 
+		// Parse time range if provided
+		var startTimeParsed, endTimeParsed time.Time
+		if startTime != "" {
+			startTimeParsed, err = time.Parse(time.RFC3339, startTime)
+			if err != nil {
+				http.Error(w, "Invalid start_time format. Use RFC3339 format", http.StatusBadRequest)
+				return
+			}
+		}
+		if endTime != "" {
+			endTimeParsed, err = time.Parse(time.RFC3339, endTime)
+			if err != nil {
+				http.Error(w, "Invalid end_time format. Use RFC3339 format", http.StatusBadRequest)
+				return
+			}
+		}
+
 		// Read and parse entries
 		scanner := bufio.NewScanner(file)
 		var entries []LogEntry = []LogEntry{}
@@ -131,16 +151,30 @@ func main() {
 				continue
 			}
 
-			totalCount++
-			if totalCount <= (page-1)*pageSize || totalCount > page*pageSize {
-				continue
-			}
-
 			var entry LogEntry
 			if err := json.Unmarshal([]byte(line), &entry); err != nil {
 				// If JSON parsing fails, include the raw entry
 				entry = LogEntry{RawEntry: line}
 			}
+
+			// Filter by time if time range is provided
+			if entry.Time != "" {
+				entryTime, err := time.Parse(time.RFC3339, entry.Time)
+				if err == nil {
+					if !startTimeParsed.IsZero() && entryTime.Before(startTimeParsed) {
+						continue
+					}
+					if !endTimeParsed.IsZero() && entryTime.After(endTimeParsed) {
+						continue
+					}
+				}
+			}
+
+			totalCount++
+			if totalCount <= (page-1)*pageSize || totalCount > page*pageSize {
+				continue
+			}
+
 			entries = append(entries, entry)
 		}
 

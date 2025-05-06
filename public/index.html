@@ -12,6 +12,7 @@
     <style>
         .log-entry {
             transition: background-color 0.2s;
+            word-break: break-word;
         }
 
         .log-entry:hover {
@@ -65,6 +66,8 @@
 
         .log-content {
             position: relative;
+            max-width: 100%;
+            overflow-x: hidden;
         }
 
         .log-content .copy-button {
@@ -78,27 +81,60 @@
         .log-content:hover .copy-button {
             opacity: 1;
         }
+
+        .log-content pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+        }
+
+        /* Dialog mobile styles */
+        .dialog-mobile::part(panel) {
+            width: 95%;
+            max-width: 95%;
+            margin: 1rem;
+            max-height: 90vh;
+        }
+
+        .dialog-mobile::part(close-button) {
+            padding: 0.5rem;
+        }
+
+        .dialog-mobile::part(header) {
+            padding: 0.75rem 1rem;
+        }
+
+        .dialog-mobile::part(body) {
+            padding: 0.75rem;
+        }
+
+        @media (min-width: 640px) {
+            .dialog-mobile::part(panel) {
+                width: 80%;
+                max-width: 800px;
+                margin: 2rem auto;
+            }
+        }
     </style>
 </head>
 
 <body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold text-gray-800 mb-8">Log Viewer</h1>
+    <div class="container mx-auto px-1 py-4">
+        <h1 class="text-xl font-bold text-gray-800 ml-2 mb-4">Log Viewer</h1>
 
         <!-- Controls -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <!-- File Selector -->
+        <div class="rounded-lg p-2 mb-6">
+            <!-- File Selection and Page Size -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Log File</label>
+                    <label class="block text-sm font-medium text-gray-700">Log File</label>
                     <sl-select id="logFile" class="w-full">
                         <sl-option value="">Select a log file...</sl-option>
                     </sl-select>
                 </div>
-
-                <!-- Page Size -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Entries per page</label>
+                    <label class="block text-sm font-medium text-gray-700">Entries per page</label>
                     <sl-select id="pageSize" class="w-full">
                         <sl-option value="10">10</sl-option>
                         <sl-option value="25">25</sl-option>
@@ -106,18 +142,29 @@
                         <sl-option value="100">100</sl-option>
                     </sl-select>
                 </div>
-
-
             </div>
-            <!-- Search -->
-            <div class="pt-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
+
+            <!-- Search and Time Range -->
+            <div class="mb-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Start Time</label>
+                        <sl-input type="datetime-local" id="startTime" class="w-full"></sl-input>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">End Time</label>
+                        <sl-input type="datetime-local" id="endTime" class="w-full"></sl-input>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Search</label>
                 <sl-input id="searchInput" placeholder="Search in logs..." class="w-full"></sl-input>
             </div>
         </div>
 
         <!-- Log Entries -->
-        <div id="logEntries" class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div id="logEntries" class="p-1 mb-6">
             <div class="text-gray-500 text-center py-8">Select a log file to view entries</div>
         </div>
 
@@ -140,9 +187,9 @@
     </div>
 
     <!-- Dialog for large logs -->
-    <sl-dialog id="logDialog" label="Log Entry Details">
+    <sl-dialog id="logDialog" label="Log Entry Details" class="dialog-mobile">
         <div class="space-y-4">
-            <pre id="dialogContent" class="p-4 bg-gray-50 rounded text-sm overflow-x-auto max-h-[60vh]"></pre>
+            <pre id="dialogContent" class="p-2 bg-gray-50 rounded text-sm overflow-x-auto max-h-[70vh] whitespace-pre-wrap break-words"></pre>
             <div class="flex justify-end">
                 <sl-button id="dialogCopyButton" variant="neutral">
                     <sl-icon slot="prefix" name="clipboard"></sl-icon>
@@ -157,12 +204,16 @@
         let currentPage = 1;
         let currentFile = '';
         let searchTerm = '';
+        let startTime = '';
+        let endTime = '';
         let debounceTimer;
         let totalPages = 1;
 
         // Elements
         const logFileSelect = document.getElementById('logFile');
         const searchInput = document.getElementById('searchInput');
+        const startTimeInput = document.getElementById('startTime');
+        const endTimeInput = document.getElementById('endTime');
         const pageSizeSelect = document.getElementById('pageSize');
         const logEntries = document.getElementById('logEntries');
         const prevPageBtn = document.getElementById('prevPage');
@@ -185,7 +236,7 @@
                 files.forEach(file => {
                     const option = document.createElement('sl-option');
                     option.value = file.name;
-                    
+
                     // Parse ISO date from filename
                     try {
                         const date = new Date(file.name);
@@ -207,7 +258,7 @@
                     } catch (e) {
                         option.textContent = file.name;
                     }
-                    
+
                     logFileSelect.appendChild(option);
                 });
             } catch (error) {
@@ -242,7 +293,7 @@
 
             try {
                 const pageSize = pageSizeSelect.value;
-                const url = `/api/logs/search?file=${encodeURIComponent(currentFile)}&page=${currentPage}&page_size=${pageSize}&q=${encodeURIComponent(searchTerm)}`;
+                const url = `/api/logs/search?file=${encodeURIComponent(currentFile)}&page=${currentPage}&page_size=${pageSize}&q=${encodeURIComponent(searchTerm)}${startTime ? `&start_time=${encodeURIComponent(startTime)}` : ''}${endTime ? `&end_time=${encodeURIComponent(endTime)}` : ''}`;
 
                 const response = await fetch(url);
                 const data = await response.json();
@@ -265,7 +316,7 @@
                     const showDialog = body.length > 250 || (entry.raw_entry && entry.raw_entry.length > 250);
 
                     return `
-                        <div class="log-entry p-4 border-b border-gray-200 last:border-b-0">
+                        <div class="log-entry p-2 border-b border-gray-200 last:border-b-0">
                             <div class="flex justify-between items-start mb-2">
                                 <div class="font-medium text-gray-900">Request #${entry.request_number}</div>
                                 <div class="text-sm text-gray-500">${entry.method} ${entry.url}</div>
@@ -338,6 +389,24 @@
                 currentPage = 1;
                 fetchLogEntries();
             }, 300);
+        });
+
+        startTimeInput.addEventListener('sl-change', (e) => {
+            startTime = e.target.value;
+            if (startTime) {
+                startTime = new Date(startTime).toISOString();
+            }
+            currentPage = 1;
+            fetchLogEntries();
+        });
+
+        endTimeInput.addEventListener('sl-change', (e) => {
+            endTime = e.target.value;
+            if (endTime) {
+                endTime = new Date(endTime).toISOString();
+            }
+            currentPage = 1;
+            fetchLogEntries();
         });
 
         pageSizeSelect.addEventListener('sl-change', () => {
